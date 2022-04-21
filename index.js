@@ -1,4 +1,13 @@
-const Pineapple = require('qantra-pineapple');
+const Pineapple = require("qantra-pineapple");
+const fs = require("firebase-admin");
+
+const serviceAccount = require("./credentials.json");
+fs.initializeApp({
+  credential: fs.credential.cert(serviceAccount),
+});
+const db = fs.firestore();
+const fabricDb = db.collection("fabricSchema");
+const rideDb = db.collection("overwriteSchema");
 
 class PayloadLearner {
   constructor() {
@@ -10,12 +19,30 @@ class PayloadLearner {
     if api exists, then updateschema is called to update payload.
     if api doesnt exist, then fetchschems is called to create new payload.
   **/
-  add({ api, payload }) {
+  async add({ api, payload, flagOverwrite }) {
+    var getFabric = await this.fetchFromFirebase(api);
     if (this.fields[api]) {
       var s = this._updateSchema(payload, api);
     } else {
       this.fields[api] = this._fetchSchema(payload);
     }
+    if (flagOverwrite) {
+      const getOverwrite = await rideDb.where("api", "==", api).get();
+      var query = getOverwrite.docs;
+      if (query && query.length > 0) {
+        var qData = query[0].data();
+
+        for (const key in qData.schema) {
+          if (Object.keys(this.fields[api]).includes(key)) {
+            var valueFields = this.fields[api];
+            var valueSchema = qData.schema;
+            valueFields[key] = valueSchema[key];
+          }
+        }
+      }
+    }
+
+    await this.setinFirebase(api, getFabric);
   }
 
   /**
@@ -43,7 +70,7 @@ class PayloadLearner {
       if (!this.fields[api].hasOwnProperty(varObj)) {
         output[varObj].required = false;
         var newObj = this.fields[api];
-        newObj[varObj] = output[varObj]
+        newObj[varObj] = output[varObj];
       }
     }
     return output;
@@ -56,17 +83,13 @@ class PayloadLearner {
     returns the updated schema
   **/
   checkRequiredUpdated = (arr, api, flagFetch) => {
-
     var returnValue = {};
     for (const arrayIndex of arr) {
-
       let firstObj = arrayIndex;
       for (const prop of Object.keys(firstObj)) {
-
-        if (typeof firstObj[prop] != 'object') {
-
+        if (typeof firstObj[prop] != "object") {
           if (!returnValue[prop]) {
-            returnValue[prop] = {}
+            returnValue[prop] = {};
           }
 
           if (!returnValue[prop].min) {
@@ -74,49 +97,38 @@ class PayloadLearner {
             if (flagFetch) {
               returnValue[prop].min = 9999999;
               returnValue[prop].max = 0;
-            }
-            else {
-              var secondObj = firstObjTrial[prop]
+            } else {
+              var secondObj = firstObjTrial[prop];
               if (secondObj) {
                 returnValue[prop].min = secondObj.min;
                 returnValue[prop].max = secondObj.max;
-              }
-              else {
+              } else {
                 returnValue[prop].min = 9999999;
                 returnValue[prop].max = 0;
               }
             }
-
           }
 
           for (const s of Object.keys(firstObj)) {
             if (s == prop) {
               if (firstObj[s].toString().length < returnValue[prop].min) {
-
                 if (flagFetch) {
                   returnValue[prop].min = firstObj[s].toString().length;
-
-                }
-                else {
+                } else {
                   returnValue[prop].min = firstObj[s].toString().length;
 
                   if (secondObj) {
                     secondObj.min = firstObj[s].toString().length;
                   }
                 }
-
               }
               if (firstObj[s].toString().length > returnValue[prop].max) {
-
                 if (flagFetch) {
                   returnValue[prop].max = firstObj[s].toString().length;
-
-                }
-                else {
+                } else {
                   returnValue[prop].max = firstObj[s].toString().length;
 
                   if (secondObj) {
-
                     secondObj.max = firstObj[s].toString().length;
                   }
                 }
@@ -128,10 +140,8 @@ class PayloadLearner {
             var firstObjTrial = this.fields[api];
             if (flagFetch) {
               returnValue[prop].type = typeof firstObj[prop];
-
-            }
-            else {
-              var secondObj = firstObjTrial[prop]
+            } else {
+              var secondObj = firstObjTrial[prop];
               if (secondObj) {
                 secondObj.type = typeof firstObj[prop];
               }
@@ -140,18 +150,20 @@ class PayloadLearner {
 
             let counter = {};
 
-            let arrOfLen = []
+            let arrOfLen = [];
             for (const aitem of arr) {
               if (aitem[prop] != undefined) {
-                arrOfLen.push(aitem[prop].length)
-                if (counter[prop]) { counter[prop] += 1; }
-                else { counter[prop] = 1; }
+                arrOfLen.push(aitem[prop].length);
+                if (counter[prop]) {
+                  counter[prop] += 1;
+                } else {
+                  counter[prop] = 1;
+                }
               }
             }
             if (counter[prop] == arr.length) {
               returnValue[prop].required = true;
-            }
-            else {
+            } else {
               returnValue[prop].required = false;
             }
           }
@@ -159,8 +171,7 @@ class PayloadLearner {
       }
     }
     return returnValue;
-  }
-
+  };
 
   /**
     receives the new api's payload
@@ -188,7 +199,7 @@ class PayloadLearner {
     var toReturn = {};
     for (var i in ob) {
       if (!ob.hasOwnProperty(i)) continue;
-      if ((typeof ob[i]) == 'object' && ob[i] !== null) {
+      if (typeof ob[i] == "object" && ob[i] !== null) {
         if (Array.isArray(ob[i])) {
           toReturn[i] = ob[i];
         } else {
@@ -203,8 +214,7 @@ class PayloadLearner {
       }
     }
     return toReturn;
-  }
-
+  };
 
   /**
     receives specific api  
@@ -212,7 +222,7 @@ class PayloadLearner {
     returns the converted schema of specific api
   **/
   getSchema({ api }) {
-    return this._pineConverter(this.fields[api])
+    return this._pineConverter(this.fields[api]);
   }
 
   /**
@@ -224,7 +234,7 @@ class PayloadLearner {
   getSchemes() {
     let valueObj = {};
     for (const valueSchemas in this.fields) {
-      valueObj[valueSchemas] = this._pineConverter(this.fields[valueSchemas])
+      valueObj[valueSchemas] = this._pineConverter(this.fields[valueSchemas]);
     }
     return valueObj;
   }
@@ -245,9 +255,9 @@ class PayloadLearner {
         type: arrayOfFields[dataObj].type,
         length: {
           min: arrayOfFields[dataObj].min,
-          max: arrayOfFields[dataObj].max
+          max: arrayOfFields[dataObj].max,
         },
-      })
+      });
     }
     return arraySchema;
   }
@@ -260,72 +270,152 @@ class PayloadLearner {
   **/
   async pineValidate(schema, userInput) {
     let pineapple = new Pineapple();
-    let sError = await pineapple.validate(userInput, schema)
-    console.log(sError)
+    let sError = await pineapple.validate(userInput, schema);
+    console.log("-----Error-----");
+    console.log(sError);
+  }
+
+  //get schemas from firestore based on userinput
+  async fetchFromFirebase(apiInput) {
+    const getFabric = await fabricDb.where("api", "==", apiInput).get();
+    var query = getFabric.docs;
+    if (query && query.length > 0) {
+      if (getFabric) {
+        var qData = query[0].data();
+        var qApi = qData.api;
+        var qSchema = qData.schema;
+        this.fields[qApi] = qSchema;
+      }
+      return getFabric;
+    }
+  }
+
+  /**
+   * check if data is preloaded in database
+   * if found then update data
+   * else set data
+   **/
+  async setinFirebase(apiInput, getFabric) {
+    var schemasExisting = this.fields[apiInput];
+    if (getFabric) {
+      var query = getFabric.docs;
+      var qData = query[0].data();
+
+      if (qData) {
+        await fabricDb.doc(query[0].id).update({
+          schema: schemasExisting,
+        });
+      }
+    } else {
+      await fabricDb.doc().set({
+        api: apiInput,
+        schema: schemasExisting,
+      });
+    }
+  }
+
+  async setOverwrite(sentApi, value) {
+    const getOverwrite = await rideDb.where("api", "==", sentApi).get();
+
+    var query = getOverwrite.docs;
+
+    if (query && query.length > 0) {
+      var qData = query[0].data();
+      if (!qData) {
+        await rideDb.doc().set({
+          api: sentApi,
+          schema: value,
+        });
+      } else {
+        await rideDb.doc(query[0].id).update({
+          schema: value,
+        });
+      }
+    } else {
+      await rideDb.doc().set({
+        api: sentApi,
+        schema: value,
+      });
+    }
   }
 }
 
 (async () => {
   let payloadLearner = new PayloadLearner();
 
-  payloadLearner.add({
-    api: 'signup', payload: {
-      username: 'bahi',
-      password: '1019292',
-      mobile: '1040596039059'
-    }
+  await payloadLearner.add({
+    api: "login",
+    payload: {
+      username: "ff",
+      password: "2022",
+      mobile: 011234,
+    },
+    flagOverwrite: false,
   });
 
+  await payloadLearner.add({
+    api: "login",
+    payload: {
+      username: "fabricPackage",
+      password: "20",
+      mobile: 01123455623,
+    },
+    flagOverwrite: false,
+  });
 
-  payloadLearner.add({
-    api: 'signup', payload: {
-      // username: 'abbbbbbbb', 
-      password: 3,
-      mobile: '123456',
-      address: '1'
-    }
-  })
+  await payloadLearner.add({
+    api: "signup",
+    payload: {
+      username: "bahi",
+      password: 1019292,
+      mobile: "1040596039059",
+    },
+    flagOverwrite: true,
+  });
 
+  await payloadLearner.add({
+    api: "signup",
+    payload: {
+      // username: 'abbbbbbbb',
+      password: "266",
+      mobile: 123456,
+      address: "12",
+    },
+    flagOverwrite: false,
+  });
 
-  payloadLearner.add({
-    api: 'signin', payload: {
-      username: 'bahi',
-      password: '1019292',
-      mobile: 123123,
+  await payloadLearner.add({
+    api: "signin",
+    payload: {
+      username: "bahi",
+      password: "1019292",
+      mobile: "123123",
       is: true,
-    }
-  })
-  payloadLearner.add({
-    api: 'signin', payload: {
-      username: 'bahitoo',
-      password: '1019293435',
-      mobile: '22',
-      is: false
-    }
+    },
+    flagOverwrite: false,
+  });
+  await payloadLearner.add({
+    api: "signin",
+    payload: {
+      username: "bahitoo",
+      password: "1019293435",
+      mobile: "2",
+      is: false,
+    },
+    flagOverwrite: false,
   });
 
-
-
-  var schemas = payloadLearner.getSchemes();
-  console.log('get-----------')
-  console.log(schemas);
-
-  // {
-  //   signin: [{schema of signin}],
-  //   signup: [{schema of signup}]
-  // }
-
-  let schema = payloadLearner.getSchema({ api: 'signup' });
+  await payloadLearner.setOverwrite("signup", {
+    username: { max: 18, min: 2, required: true, type: "string" },
+  });
+  await payloadLearner.setOverwrite("login", {
+    password: { max: 17, min: 5, required: true, type: "number" },
+  });
+  let schema = payloadLearner.getSchema({ api: "signup" });
 
   console.log("-----schema-----");
-  console.log(schema)
-  // console.log(schema)
+  console.log(schema);
+  let userInput = { password: "abc", is: 7 };
 
-  let userInput = { password: 'abc', is: 7 }
-
-
-
-  let errorSchema = await payloadLearner.pineValidate(schema, userInput)
-
-
+  let errorSchema = await payloadLearner.pineValidate(schema, userInput);
 })();

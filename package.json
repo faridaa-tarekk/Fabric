@@ -1,14 +1,24 @@
 {
-  "name": "fabric",
+  "name": "ffabric",
   "version": "1.0.0",
-  "description": "",
+  "description": "A program used to take in payloads and learn their values to create schemas. ",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "author": {
+    "name": "Farida Tarek ",
+    "email": "faridaa.tarekk@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/faridaa-tarekk/Fabric"
+  },
   "license": "ISC",
   "dependencies": {
+    "firebase": "^9.6.11",
+    "firebase-admin": "^10.0.2",
+    "mongodb": "^4.5.0",
     "qantra-pineapple": "^1.0.8"
   }
 }
